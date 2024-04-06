@@ -41,10 +41,15 @@ elf_status elf_init(elf_ctx *ctx, void *info) {
 
   // load the elf header
   if (elf_fpread(ctx, &ctx->ehdr, sizeof(ctx->ehdr), 0) != sizeof(ctx->ehdr)) return EL_EIO;
-
   // check the signature (magic value) of the elf
   if (ctx->ehdr.magic != ELF_MAGIC) return EL_NOTELF;
 
+  return EL_OK;
+}
+
+int f_ake_elf_init(elf_ctx *ctx, void *info) {
+  ctx->info = info;
+  if (elf_fpread(ctx, &ctx->ehdr, sizeof(ctx->ehdr), 0) != sizeof(ctx->ehdr)) return EL_EIO;
   return EL_OK;
 }
 

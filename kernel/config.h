@@ -9,9 +9,14 @@
 
 #define DRAM_BASE 0x80000000
 
+/** self defination **/
 #define APP_BASE 0x81000000u
 #define APP_SIZE 0x4000000u
 #define STACK_SIZE 0x100000u
+#define D_STACK_SIZE 0x200000u
+#define S_STACK_SIZE 0x300000u
+#define N_STACK_SIZE 0x400000u
+/** end **/
 
 /* we use fixed physical (also logical) addresses for the stacks and trap frames as in
  Bare memory-mapping mode */
