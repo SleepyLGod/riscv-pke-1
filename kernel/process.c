@@ -179,8 +179,7 @@ int free_process( process* proc ) {
 // segments (code, system) of the parent to child. the stack segment remains unchanged
 // for the child.
 //
-int do_fork( process* parent)
-{
+int do_fork( process* parent) {
   sprint( "will fork a child from parent %d.\n", parent->pid );
   process* child = alloc_process();
 

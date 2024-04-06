@@ -124,7 +124,8 @@ ssize_t sys_user_read(int fd, char *bufva, uint64 count) {
     uint64 off = addr - ROUNDDOWN(addr, PGSIZE);
     uint64 len = count - i < PGSIZE - off ? count - i : PGSIZE - off;
     uint64 r = do_read(fd, (char *)pa + off, len);
-    i += r; if (r < len) return i;
+    i += r; 
+    if (r < len) return i;
   }
   return count;
 }

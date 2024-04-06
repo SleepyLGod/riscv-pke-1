@@ -21,8 +21,7 @@ int map_pages(pagetable_t page_dir, uint64 va, uint64 size, uint64 pa, int perm)
   uint64 first, last;
   pte_t *pte;
 
-  for (first = ROUNDDOWN(va, PGSIZE), last = ROUNDDOWN(va + size - 1, PGSIZE);
-      first <= last; first += PGSIZE, pa += PGSIZE) {
+  for (first = ROUNDDOWN(va, PGSIZE), last = ROUNDDOWN(va + size - 1, PGSIZE); first <= last; first += PGSIZE, pa += PGSIZE) {
     if ((pte = page_walk(page_dir, first, 1)) == 0) return -1;
     if (*pte & PTE_V) {
       sprint("map_pages fails on mapping va (0x%lx) to pa (0x%lx)", first, pa);
@@ -213,9 +212,7 @@ void user_vm_unmap(pagetable_t page_dir, uint64 va, uint64 size, int free) {
       pt = (pagetable_t)PTE2PA(*pte);
     }
     *pte &= ~PTE_V;
-    if(free) {
-      free_page((void *)PTE2PA(*pte));
-    }
+    if(free) free_page((void *)PTE2PA(*pte));
   }
 
 }

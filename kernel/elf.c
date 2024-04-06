@@ -65,10 +65,8 @@ elf_status elf_init(elf_ctx *ctx, void *info) {
 
   // load the elf header
   if (elf_fpread(ctx, &ctx->ehdr, sizeof(ctx->ehdr), 0) != sizeof(ctx->ehdr)) return EL_EIO;
-
   // check the signature (magic value) of the elf
   if (ctx->ehdr.magic != ELF_MAGIC) return EL_NOTELF;
-
   return EL_OK;
 }
 
@@ -79,23 +77,18 @@ elf_status elf_load(elf_ctx *ctx) {
   // elf_prog_header structure is defined in kernel/elf.h
   elf_prog_header ph_addr;
   int i, off;
-
   // traverse the elf program segment headers
   for (i = 0, off = ctx->ehdr.phoff; i < ctx->ehdr.phnum; i++, off += sizeof(ph_addr)) {
     // read segment headers
     if (elf_fpread(ctx, (void *)&ph_addr, sizeof(ph_addr), off) != sizeof(ph_addr)) return EL_EIO;
-
     if (ph_addr.type != ELF_PROG_LOAD) continue;
     if (ph_addr.memsz < ph_addr.filesz) return EL_ERR;
     if (ph_addr.vaddr + ph_addr.memsz < ph_addr.vaddr) return EL_ERR;
-
     // allocate memory block before elf loading
     void *dest = elf_alloc_mb(ctx, ph_addr.vaddr, ph_addr.vaddr, ph_addr.memsz);
-
     // actual loading
     if (elf_fpread(ctx, dest, ph_addr.memsz, ph_addr.off) != ph_addr.memsz)
       return EL_EIO;
-
     // record the vm region in proc->mapped_info. added @lab3_1
     int j;
     for( j=0; j<PGSIZE/sizeof(mapped_region); j++ ) //seek the last mapped region
@@ -125,11 +118,9 @@ elf_status elf_load(elf_ctx *ctx) {
 //
 void load_bincode_from_host_elf(process *p, char *filename) {
   sprint("Application: %s\n", filename);
-
-  //elf loading. elf_ctx is defined in kernel/elf.h, used to track the loading process.
-  elf_ctx elfloader;
-  // elf_info is defined above, used to tie the elf file and its corresponding process.
-  elf_info info;
+  
+  elf_ctx elfloader; //elf loading. elf_ctx is defined in kernel/elf.h, used to track the loading process.
+  elf_info info; // elf_info is defined above, used to tie the elf file and its corresponding process.
 
   info.f = vfs_open(filename, O_RDONLY);
   info.p = p;
@@ -152,6 +143,29 @@ void load_bincode_from_host_elf(process *p, char *filename) {
   sprint("Application program entry point (virtual address): 0x%lx\n", p->trapframe->epc);
 }
 
+void load_code_from_host_elf(process *p, char *filename) {
+  elf_ctx elfloader;
+  elf_info info;
+
+  info.f = vfs_open(filename, O_RDONLY);
+  // Determine the entry point and other necessary information from the ELF header
+  // This is a simplified example and does not handle all cases
+
+  // Allocate memory for the code segment
+  // This is a simplified example and does not handle all cases
+  // You would need to read the program headers to determine the size of the code segment
+  // and allocate the appropriate amount of memory.
+  // ...
+
+  // Read the code segment from the ELF file into the allocated memory
+  // ...
+
+  // Set the entry point of the process to the address of the loaded code
+  // This is a simplified example and does not handle all cases
+  // ...
+  vfs_close( info.f );
+}
+
 void elf_substitute(process *p, elf_ctx *ctx, struct file *elf_file) {
   elf_prog_header ph_addr;
   int i, off;
@@ -163,9 +177,7 @@ void elf_substitute(process *p, elf_ctx *ctx, struct file *elf_file) {
     // elf_file->offset = off;
     vfs_lseek(elf_file, off, 0);
     uint64 bytes_read = vfs_read(elf_file, (char *)&ph_addr, sizeof(ph_addr));
-    if(bytes_read != sizeof(ph_addr)) {
-      panic("error when reading segment header!");
-    }
+    if (bytes_read != sizeof(ph_addr)) panic("error when reading segment header!");
     if (ph_addr.type != ELF_PROG_LOAD) continue;
     if (ph_addr.memsz < ph_addr.filesz) panic("elf ph memsz error!");
     if (ph_addr.vaddr + ph_addr.memsz < ph_addr.vaddr) panic("elf ph memsz error!");
@@ -190,8 +202,8 @@ void elf_substitute(process *p, elf_ctx *ctx, struct file *elf_file) {
       }
     } else if ( ph_addr.flags == (SEGMENT_READABLE|SEGMENT_WRITABLE) ){ // data segment
       int found = 0; // maybe there's no existing data segment
-      for(int j = 0; j < PGSIZE/sizeof(mapped_region); j++) {
-        if(p->mapped_info[j].seg_type == DATA_SEGMENT) {
+      for (int j = 0; j < PGSIZE/sizeof(mapped_region); j++) {
+        if (p->mapped_info[j].seg_type == DATA_SEGMENT) {
           sprint( "DATA_SEGMENT added at mapped info offset:%d\n", j );
           // free the original page
           user_vm_unmap(p->pagetable, p->mapped_info[j].va, PGSIZE, 1); 
@@ -201,24 +213,22 @@ void elf_substitute(process *p, elf_ctx *ctx, struct file *elf_file) {
           vfs_lseek(elf_file, ph_addr.off, 0);
           p->mapped_info[j].va = ph_addr.vaddr;
           bytes_read = vfs_read(elf_file, dest, ph_addr.memsz);
-          if(bytes_read != ph_addr.memsz) {
+          if(bytes_read != ph_addr.memsz)
             panic("error when substituting data segment!");
-          }
           found = 1;
           break;
         }
       }
-      if(!found) { // no existing data segment
+      if (!found) { // no existing data segment
         // alloc new page
         void *dest = elf_process_alloc_mb(p, ph_addr.vaddr, ph_addr.vaddr, ph_addr.memsz);
         // elf_file->offset = ph_addr.off;
         vfs_lseek(elf_file, ph_addr.off, 0);
         bytes_read = vfs_read(elf_file, dest, ph_addr.memsz);
-        if(bytes_read != ph_addr.memsz) {
+        if (bytes_read != ph_addr.memsz)
           panic("error when substituting data segment!");
-        }
-        for(int j = 0; j < PGSIZE / sizeof(mapped_region); j++) {
-          if(p->mapped_info[j].va == 0) {
+        for (int j = 0; j < PGSIZE / sizeof(mapped_region); j++) {
+          if (p->mapped_info[j].va == 0) {
             sprint( "DATA_SEGMENT added at mapped info offset:%d\n", j );
             p->mapped_info[j].npages = 1;
             p->mapped_info[j].va = ph_addr.vaddr;
@@ -233,11 +243,10 @@ void elf_substitute(process *p, elf_ctx *ctx, struct file *elf_file) {
     }
   }
   // clear the heap segment
-  for(int j = 0; j < PGSIZE / sizeof(mapped_region); j++) {
-    if(p->mapped_info[j].seg_type == HEAP_SEGMENT) {
-      for(uint64 va = p->user_heap.heap_bottom; va < p->user_heap.heap_top; va += PGSIZE) {
+  for (int j = 0; j < PGSIZE / sizeof(mapped_region); j++) {
+    if (p->mapped_info[j].seg_type == HEAP_SEGMENT) {
+      for(uint64 va = p->user_heap.heap_bottom; va < p->user_heap.heap_top; va += PGSIZE)
         user_vm_unmap(p->pagetable, va, PGSIZE, 1); // free the page at the same time
-      }
       p->mapped_info[j].npages = 0;
       p->user_heap.heap_top = p->user_heap.heap_bottom;
     }
@@ -245,7 +254,6 @@ void elf_substitute(process *p, elf_ctx *ctx, struct file *elf_file) {
 }
 
 void substitute_bincode_from_vfs_elf(process *p, const char *path, const char *param) {
-  
   //elf loading. elf_ctx is defined in kernel/elf.h, used to track the loading process.
   elf_ctx elfloader;
   elf_ctx *ctx = &elfloader;
@@ -254,21 +262,17 @@ void substitute_bincode_from_vfs_elf(process *p, const char *path, const char *p
 
   // read the elf header
   uint64 bytes_read = vfs_read(elf_file, (char *)&ctx->ehdr, sizeof(ctx->ehdr));
-  if (bytes_read != sizeof(ctx->ehdr)) {
+  if (bytes_read != sizeof(ctx->ehdr))
     panic("error when reading elf header");
-  }
 
   // check the signature (magic value) of the elf
-  if (ctx->ehdr.magic != ELF_MAGIC) {
+  if (ctx->ehdr.magic != ELF_MAGIC)
     panic("error when checking elf magic number");
-  }
 
   elf_substitute(p, ctx, elf_file);
   // entry (virtual, also physical in lab1_x) address
   p->trapframe->epc = elfloader.ehdr.entry;
-
   // close the vfs file
   vfs_close(elf_file);
-
   sprint("Application program entry point (virtual address): 0x%lx\n", p->trapframe->epc);
 }

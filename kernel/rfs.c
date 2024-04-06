@@ -21,22 +21,22 @@
 
 /**** vinode inteface ****/
 const struct vinode_ops rfs_i_ops = {
-    .viop_read = rfs_read,
-    .viop_write = rfs_write,
-    .viop_create = rfs_create,
-    .viop_lseek = rfs_lseek,
-    .viop_disk_stat = rfs_disk_stat,
-    .viop_link = rfs_link,
-    .viop_unlink = rfs_unlink,
-    .viop_lookup = rfs_lookup,
+  .viop_read = rfs_read,
+  .viop_write = rfs_write,
+  .viop_create = rfs_create,
+  .viop_lseek = rfs_lseek,
+  .viop_disk_stat = rfs_disk_stat,
+  .viop_link = rfs_link,
+  .viop_unlink = rfs_unlink,
+  .viop_lookup = rfs_lookup,
 
-    .viop_readdir = rfs_readdir,
-    .viop_mkdir = rfs_mkdir,
+  .viop_readdir = rfs_readdir,
+  .viop_mkdir = rfs_mkdir,
 
-    .viop_write_back_vinode = rfs_write_back_vinode,
+  .viop_write_back_vinode = rfs_write_back_vinode,
 
-    .viop_hook_opendir = rfs_hook_opendir,
-    .viop_hook_closedir = rfs_hook_closedir,
+  .viop_hook_opendir = rfs_hook_opendir,
+  .viop_hook_closedir = rfs_hook_closedir,
 };
 
 /**** rfs utility functions ****/
@@ -90,10 +90,9 @@ int rfs_format_dev(struct device *dev) {
   }
 
   // write RFS_MAX_INODE_BLKNUM(=10) empty inode disk blocks to RAM Disk0
-  for (int inode_block = 0; inode_block < RFS_MAX_INODE_BLKNUM; ++inode_block) {
+  for (int inode_block = 0; inode_block < RFS_MAX_INODE_BLKNUM; ++inode_block)
     if (rfs_w1block(rdev, RFS_BLK_OFFSET_INODE + inode_block) != 0)
       panic("RFS: failed to initialize empty inodes!\n");
-  }
 
   // build root directory inode (ino = 0)
   struct rfs_dinode root_dinode;
@@ -264,9 +263,8 @@ int rfs_write_back_vinode(struct vinode *vinode) {
   dinode.nlinks = vinode->nlinks;
   dinode.blocks = vinode->blocks;
   dinode.type = vinode->type;
-  for (int i = 0; i < RFS_DIRECT_BLKNUM; ++i) {
+  for (int i = 0; i < RFS_DIRECT_BLKNUM; ++i)
     dinode.addrs[i] = vinode->addrs[i];
-  }
 
   struct rfs_device *rdev = rfs_device_list[vinode->sb->s_dev->dev_id];
   if (rfs_write_dinode(rdev, &dinode, vinode->inum) != 0) {
@@ -291,9 +289,8 @@ int rfs_update_vinode(struct vinode *vinode) {
   vinode->nlinks = dinode->nlinks;
   vinode->blocks = dinode->blocks;
   vinode->type = dinode->type;
-  for (int i = 0; i < RFS_DIRECT_BLKNUM; ++i) {
+  for (int i = 0; i < RFS_DIRECT_BLKNUM; ++i)
     vinode->addrs[i] = dinode->addrs[i];
-  }
   free_page(dinode);
 
   return 0;
@@ -450,7 +447,7 @@ struct vinode *rfs_lookup(struct vinode *parent, struct dentry *sub_dentry) {
       rfs_r1block(rdev, parent->addrs[i / one_block_direntrys]);
       p_direntry = (struct rfs_direntry *)rdev->iobuffer;
     }
-    if (strcmp(p_direntry->name, sub_dentry->name) == 0) {  // found
+    if (strcmp(p_direntry->name, sub_dentry->name) == 0) { // found
       child_vinode = rfs_alloc_vinode(parent->sb);
       child_vinode->inum = p_direntry->inum;
       if (rfs_update_vinode(child_vinode) != 0)
@@ -472,8 +469,7 @@ struct vinode *rfs_create(struct vinode *parent, struct dentry *sub_dentry) {
   // ** find a free disk inode to store the file that is going to be created
   struct rfs_dinode *free_dinode = NULL;
   int free_inum = 0;
-  for (int i = 0; i < (RFS_BLKSIZE / RFS_INODESIZE * RFS_MAX_INODE_BLKNUM);
-       ++i) {
+  for (int i = 0; i < (RFS_BLKSIZE / RFS_INODESIZE * RFS_MAX_INODE_BLKNUM); ++i) {
     free_dinode = rfs_read_dinode(rdev, i);
     if (free_dinode->type == R_FREE) {  // found
       free_inum = i;
@@ -596,12 +592,10 @@ int rfs_link(struct vinode *parent, struct dentry *sub_dentry, struct vinode *li
   // 3) persistent the changes to disk. you can use rfs_write_back_vinode here.
   //
   link_node->nlinks++;
-  if(rfs_add_direntry(parent, sub_dentry->name, link_node->inum)) {
+  if(rfs_add_direntry(parent, sub_dentry->name, link_node->inum))
     panic("link: add direntry failed");
-  }
-  if(rfs_write_back_vinode(link_node)) {
+  if(rfs_write_back_vinode(link_node))
     panic("link: write back link node failed");
-  }
   return 0;
 }
 
@@ -623,9 +617,8 @@ int rfs_unlink(struct vinode *parent, struct dentry *sub_dentry, struct vinode *
       rfs_r1block(rdev, parent->addrs[delete_index / one_block_direntrys]);
       p_direntry = (struct rfs_direntry *)rdev->iobuffer;
     }
-    if (strcmp(p_direntry->name, sub_dentry->name) == 0) {  // found
+    if (strcmp(p_direntry->name, sub_dentry->name) == 0) // found
       break;
-    }
     ++p_direntry;
   }
 
@@ -652,9 +645,8 @@ int rfs_unlink(struct vinode *parent, struct dentry *sub_dentry, struct vinode *
   // ** if nlinks == 0, free the disk inode and disk blocks
   if (unlink_dinode->nlinks == 0) {
     // free disk blocks
-    for (int i = 0; i < unlink_dinode->blocks; ++i) {
+    for (int i = 0; i < unlink_dinode->blocks; ++i)
       rfs_free_block(parent->sb, unlink_dinode->addrs[i]);
-    }
     // free disk inode
     unlink_dinode->type = R_FREE;
   }
