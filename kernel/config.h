@@ -1,6 +1,8 @@
 #ifndef _CONFIG_H_
 #define _CONFIG_H_
 
+#define MCPU 5
+
 // we use two HART (cpu) in challenge3
 #define NCPU 2
 

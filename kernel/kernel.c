@@ -28,7 +28,6 @@ extern char trap_sec_start[];
 void enable_paging() {
   // write the pointer to kernel page (table) directory into the CSR of "satp".
   write_csr(satp, MAKE_SATP(g_kernel_pagetable));
-
   // refresh tlb to invalidate its content.
   flush_tlb();
 }
@@ -93,10 +92,9 @@ int s_start(void) {
   // but now, we are going to switch to the paging mode @lab2_1.
   // note, the code still works in Bare mode when calling pmm_init() and kern_vm_init().
   write_csr(satp, 0);
-  if(0 == hartid) {
+  if (0 == hartid) {
        // init phisical memory manager
        pmm_init();
-
        // build the kernel page table
        kern_vm_init();
   }

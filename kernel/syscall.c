@@ -40,7 +40,7 @@ ssize_t sys_user_exit(uint64 code) {
   // in lab1, PKE considers only one app (one process). 
   // therefore, shutdown the system when the app calls exit()
   sync_barrier(&exit_sync, NCPU);
-  if(0 == hartid) {
+  if (0 == hartid) {
     sprint("hartid = %d: shutdown with code:%d.\n", hartid, code);
     shutdown(code);
   }
@@ -59,6 +59,19 @@ uint64 sys_user_allocate_page() {
          prot_to_type(PROT_WRITE | PROT_READ, 1));
   sprint("hartid = %d: vaddr 0x%x is mapped to paddr 0x%x\n", hartid, va, pa);
   return va;
+}
+
+uint64 sys_admin_allocate_page() {
+    // Allocate a page of memory
+    void *page = alloc_page();
+    // Check if the allocation was successful
+    if (page == NULL) {
+        // Handle the error, for example, return an error code
+        return 0; // Or some other error value
+    }
+    // Convert the pointer to a uint64_t and return it
+    // This is a simplification and may not work on all systems or architectures
+    return (uint64_t)page;
 }
 
 //

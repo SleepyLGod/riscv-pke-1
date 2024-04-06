@@ -10,6 +10,6 @@ void* alloc_page();
 // Free an allocated page
 void free_page(void* pa);
 
-extern int vm_alloc_stage[NCPU];
+extern int vm_alloc_stage[NCPU]; // addition
 
 #endif
