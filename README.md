@@ -1,5 +1,22 @@
 ## About riscv-pke (Proxy Kernel for Education, PKE for short) ##
+
 ----------
+
+## ⭐Personal Statement
+
+我是20级学生，由于出国交换导致**延后一年补这门课设**，当时只有前三个Lab，但是今年多了Lab4，并且加入了新的challenge实验。
+
+所以关于Lab4我**并没有完成基础实验**而是在通读代码的基础上直接做的challenge实验，故本Repo里并无lab4的基础内容以及涉及到具体上学期相关实验的解答，**仅限本课设相关完成部分**。
+
+本Repo分支均为重新整理，提交日期以**头歌平台**提交日期为准。
+
+这是`main`分支，没有具体代码完成部分，只有报告，**分支情况**如下图所示：
+
+![image-20240406195123767](https://raw.githubusercontent.com/SleepyLGod/images/dev/markdown/image-20240406195123767.png)
+
+
+
+## Official Document
 
 Documents in Chinese can be found [here](https://gitee.com/hustos/pke-doc). There is still no dedicated documents in English yet, but the in-line comments in our codes as well as the self-explaining names for variables and functions will help on your journey of PKE.
 
