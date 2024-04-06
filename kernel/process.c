@@ -22,20 +22,15 @@
 extern char smode_trap_vector[];
 extern void return_to_user(trapframe *, uint64 satp);
 
-//
 // trap_sec_start points to the beginning of S-mode trap segment (i.e., the entry point
 // of S-mode trap vector).
-//
 extern char trap_sec_start[];
+
+// process pool. added @lab3_1
+process procs[NPROC];
 
 // current points to the currently running user-mode application.
 process* current = NULL;
-
-// process pool
-process procs[NPROC];
-
-// start virtual address of our simple heap.
-uint64 g_ufree_page = USER_FREE_ADDRESS_START;
 
 //
 // switch to a user-mode process
@@ -44,38 +39,42 @@ void switch_to(process* proc) {
   assert(proc);
   current = proc;
 
+  // write the smode_trap_vector (64-bit func. address) defined in kernel/strap_vector.S
+  // to the stvec privilege register, such that trap handler pointed by smode_trap_vector
+  // will be triggered when an interrupt occurs in S mode.
   write_csr(stvec, (uint64)smode_trap_vector);
-  // set up trapframe values that smode_trap_vector will need when
+
+  // set up trapframe values (in process structure) that smode_trap_vector will need when
   // the process next re-enters the kernel.
   proc->trapframe->kernel_sp = proc->kstack;      // process's kernel stack
   proc->trapframe->kernel_satp = read_csr(satp);  // kernel page table
   proc->trapframe->kernel_trap = (uint64)smode_trap_handler;
 
-  // set up the registers that strap_vector.S's sret will use
-  // to get to user space.
-
-  // set S Previous Privilege mode to User.
+  // SSTATUS_SPP and SSTATUS_SPIE are defined in kernel/riscv.h
+  // set S Previous Privilege mode (the SSTATUS_SPP bit in sstatus register) to User mode.
   unsigned long x = read_csr(sstatus);
   x &= ~SSTATUS_SPP;  // clear SPP to 0 for user mode
   x |= SSTATUS_SPIE;  // enable interrupts in user mode
 
+  // write x back to 'sstatus' register to enable interrupts, and sret destination mode.
   write_csr(sstatus, x);
 
-  // set S Exception Program Counter to the saved user pc.
+  // set S Exception Program Counter (sepc register) to the elf entry pc.
   write_csr(sepc, proc->trapframe->epc);
 
-  //make user page table
+  // make user page table. macro MAKE_SATP is defined in kernel/riscv.h. added @lab2_1
   uint64 user_satp = MAKE_SATP(proc->pagetable);
 
-  // switch to user mode with sret.
+  // return_to_user() is defined in kernel/strap_vector.S. switch to user mode with sret.
+  // note, return_to_user takes two parameters @ and after lab2_1.
   return_to_user(proc->trapframe, user_satp);
 }
 
 //
-// initialize process pool (the procs[] array)
+// initialize process pool (the procs[] array). added @lab3_1
 //
 void init_proc_pool() {
-  memset( procs, 0, sizeof(struct process)*NPROC );
+  memset( procs, 0, sizeof(process)*NPROC );
 
   for (int i = 0; i < NPROC; ++i) {
     procs[i].status = FREE;
@@ -84,7 +83,8 @@ void init_proc_pool() {
 }
 
 //
-// allocate an empty process, init its vm space. returns its pid
+// allocate an empty process, init its vm space. returns the pointer to
+// process strcuture. added @lab3_1
 //
 process* alloc_process() {
   // locate the first usable process structure
@@ -117,35 +117,46 @@ process* alloc_process() {
   // map user stack in userspace
   user_vm_map((pagetable_t)procs[i].pagetable, USER_STACK_TOP - PGSIZE, PGSIZE,
     user_stack, prot_to_type(PROT_WRITE | PROT_READ, 1));
-  procs[i].mapped_info[0].va = USER_STACK_TOP - PGSIZE;
-  procs[i].mapped_info[0].npages = 1;
-  procs[i].mapped_info[0].seg_type = STACK_SEGMENT;
+  procs[i].mapped_info[STACK_SEGMENT].va = USER_STACK_TOP - PGSIZE;
+  procs[i].mapped_info[STACK_SEGMENT].npages = 1;
+  procs[i].mapped_info[STACK_SEGMENT].seg_type = STACK_SEGMENT;
 
   // map trapframe in user space (direct mapping as in kernel space).
   user_vm_map((pagetable_t)procs[i].pagetable, (uint64)procs[i].trapframe, PGSIZE,
     (uint64)procs[i].trapframe, prot_to_type(PROT_WRITE | PROT_READ, 0));
-  procs[i].mapped_info[1].va = (uint64)procs[i].trapframe;
-  procs[i].mapped_info[1].npages = 1;
-  procs[i].mapped_info[1].seg_type = CONTEXT_SEGMENT;
+  procs[i].mapped_info[CONTEXT_SEGMENT].va = (uint64)procs[i].trapframe;
+  procs[i].mapped_info[CONTEXT_SEGMENT].npages = 1;
+  procs[i].mapped_info[CONTEXT_SEGMENT].seg_type = CONTEXT_SEGMENT;
 
   // map S-mode trap vector section in user space (direct mapping as in kernel space)
   // we assume that the size of usertrap.S is smaller than a page.
   user_vm_map((pagetable_t)procs[i].pagetable, (uint64)trap_sec_start, PGSIZE,
     (uint64)trap_sec_start, prot_to_type(PROT_READ | PROT_EXEC, 0));
-  procs[i].mapped_info[2].va = (uint64)trap_sec_start;
-  procs[i].mapped_info[2].npages = 1;
-  procs[i].mapped_info[2].seg_type = SYSTEM_SEGMENT;
+  procs[i].mapped_info[SYSTEM_SEGMENT].va = (uint64)trap_sec_start;
+  procs[i].mapped_info[SYSTEM_SEGMENT].npages = 1;
+  procs[i].mapped_info[SYSTEM_SEGMENT].seg_type = SYSTEM_SEGMENT;
 
   sprint("in alloc_proc. user frame 0x%lx, user stack 0x%lx, user kstack 0x%lx \n",
     procs[i].trapframe, procs[i].trapframe->regs.sp, procs[i].kstack);
 
-  procs[i].total_mapped_region = 3;
+  // initialize the process's heap manager
+  procs[i].user_heap.heap_top = USER_FREE_ADDRESS_START;
+  procs[i].user_heap.heap_bottom = USER_FREE_ADDRESS_START;
+  procs[i].user_heap.free_pages_count = 0;
+
+  // map user heap in userspace
+  procs[i].mapped_info[HEAP_SEGMENT].va = USER_FREE_ADDRESS_START;
+  procs[i].mapped_info[HEAP_SEGMENT].npages = 0;  // no pages are mapped to heap yet.
+  procs[i].mapped_info[HEAP_SEGMENT].seg_type = HEAP_SEGMENT;
+
+  procs[i].total_mapped_region = 4;
+
   // return after initialization.
   return &procs[i];
 }
 
 //
-// reclaim a process
+// reclaim a process. added @lab3_1
 //
 int free_process( process* proc ) {
   // we set the status to ZOMBIE, but cannot destruct its vm space immediately.
@@ -158,7 +169,7 @@ int free_process( process* proc ) {
 }
 
 //
-// implements fork syscal in kernel.
+// implements fork syscal in kernel. added @lab3_1
 // basic idea here is to first allocate an empty process (child), then duplicate the
 // context and data segments of parent process to the child, and lastly, map other
 // segments (code, system) of the parent to child. the stack segment remains unchanged
@@ -173,32 +184,91 @@ int do_fork( process* parent)
     // browse parent's vm space, and copy its trapframe and data segments,
     // map its code segment.
     switch( parent->mapped_info[i].seg_type ){
-      case CONTEXT_SEGMENT:
+      case CONTEXT_SEGMENT: {
         *child->trapframe = *parent->trapframe;
         break;
-      case STACK_SEGMENT:
-        memcpy( (void*)lookup_pa(child->pagetable, child->mapped_info[0].va),
+      }
+      case STACK_SEGMENT: {
+        memcpy( (void*)lookup_pa(child->pagetable, child->mapped_info[STACK_SEGMENT].va),
           (void*)lookup_pa(parent->pagetable, parent->mapped_info[i].va), PGSIZE );
         break;
-      case CODE_SEGMENT:
+      }
+
+      case HEAP_SEGMENT: {
+        // build a same heap for child process.
+
+        // convert free_pages_address into a filter to skip reclaimed blocks in the heap
+        // when mapping the heap blocks
+          int free_block_filter[MAX_HEAP_PAGES];
+          memset(free_block_filter, 0, MAX_HEAP_PAGES);
+          uint64 heap_bottom = parent->user_heap.heap_bottom;
+          for (int i = 0; i < parent->user_heap.free_pages_count; i++) {
+            int index = (parent->user_heap.free_pages_address[i] - heap_bottom) / PGSIZE;
+            free_block_filter[index] = 1;
+          }
+
+          // map the heap blocks
+          for (uint64 heap_block = current->user_heap.heap_bottom;
+              heap_block < current->user_heap.heap_top; heap_block += PGSIZE) {
+            if (free_block_filter[(heap_block - heap_bottom) / PGSIZE])  // skip free blocks
+              continue;
+
+            uint64 parent_pa = lookup_pa(parent->pagetable, heap_block);
+            // just map the heap, read only
+            user_vm_map((pagetable_t)child->pagetable, heap_block, PGSIZE, parent_pa,
+                        prot_to_type(PROT_READ, 1));
+            pte_t *pte = page_walk(child->pagetable, heap_block, 0);
+            if(NULL == pte) {
+              panic("error when mapping heap segment!");
+            }
+            // set the cow flag
+            *pte |= PTE_RSW_0;
+
+            pte = page_walk(parent->pagetable, heap_block, 0);
+            if(NULL == pte) {
+              panic("parent has no corresponding page!");
+            }
+            
+            // set parent's heap to read only
+            *pte &= ~PTE_W;
+            // set the cow flag
+            *pte |= PTE_RSW_1;
+          }
+
+          child->mapped_info[HEAP_SEGMENT].npages = parent->mapped_info[HEAP_SEGMENT].npages;
+
+          // copy the heap manager from parent to child
+          memcpy((void*)&child->user_heap, (void*)&parent->user_heap, sizeof(parent->user_heap));
+          child->user_heap.refcnt = 0;
+          child->user_heap.has_copied = 0;
+
+          // set parent's refcnt
+          parent->user_heap.refcnt++;
+
+          break;
+        }
+      
+        
+      case CODE_SEGMENT: {
         // TODO (lab3_1): implment the mapping of child code segment to parent's
         // code segment.
         // hint: the virtual address mapping of code segment is tracked in mapped_info
         // page of parent's process structure. use the information in mapped_info to
         // retrieve the virtual to physical mapping of code segment.
-        // after having the mapping information, just map the corresponding virtual 
+        // after having the mapping information, just map the corresponding virtual
         // address region of child to the physical pages that actually store the code
-        // segment of parent process. 
+        // segment of parent process.
         // DO NOT COPY THE PHYSICAL PAGES, JUST MAP THEM.
-        panic( "You need to implement the code segment mapping of child in lab3_1.\n" );
-
+        user_vm_map(child->pagetable, parent->mapped_info[i].va, parent->mapped_info[i].npages * PGSIZE, 
+          lookup_pa(parent->pagetable, parent->mapped_info[i].va), prot_to_type(PROT_EXEC | PROT_READ, 1));
         // after mapping, register the vm region (do not delete codes below!)
         child->mapped_info[child->total_mapped_region].va = parent->mapped_info[i].va;
-        child->mapped_info[child->total_mapped_region].npages = 
+        child->mapped_info[child->total_mapped_region].npages =
           parent->mapped_info[i].npages;
         child->mapped_info[child->total_mapped_region].seg_type = CODE_SEGMENT;
         child->total_mapped_region++;
         break;
+      }
     }
   }
 
@@ -208,4 +278,48 @@ int do_fork( process* parent)
   insert_to_ready_queue( child );
 
   return child->pid;
+}
+
+
+void do_copy_on_write(process *child, process *parent) {
+
+  // build a same heap for child process.
+  // convert free_pages_address into a filter to skip reclaimed blocks in the heap
+  // when mapping the heap blocks
+  if(child->user_heap.has_copied) {
+    panic("the heap has already been copied!");
+  }
+  int free_block_filter[MAX_HEAP_PAGES];
+  memset(free_block_filter, 0, MAX_HEAP_PAGES);
+  uint64 heap_bottom = parent->user_heap.heap_bottom;
+  for (int i = 0; i < parent->user_heap.free_pages_count; i++) {
+    int index = (parent->user_heap.free_pages_address[i] - heap_bottom) / PGSIZE;
+    free_block_filter[index] = 1;
+  }
+
+  // copy and map the heap blocks
+  for (uint64 heap_block = parent->user_heap.heap_bottom;
+      heap_block < parent->user_heap.heap_top; heap_block += PGSIZE) {
+    if (free_block_filter[(heap_block - heap_bottom) / PGSIZE])  // skip free blocks
+      continue;
+    user_vm_unmap(child->pagetable, heap_block, PGSIZE, 0);
+    void *pa = alloc_page();
+    user_vm_map(child->pagetable, heap_block, PGSIZE, (uint64)pa, prot_to_type(PROT_WRITE | PROT_READ, 1));
+    memcpy(pa, (void *)lookup_pa(parent->pagetable, heap_block), PGSIZE);
+  }
+
+  child->user_heap.has_copied = 1;
+  parent->user_heap.refcnt--;
+}
+
+void do_copy_to_sons(process *parent) {
+  for(int i = 0; i < NPROC; i++) {
+    if(procs[i].status != FREE && procs[i].status != ZOMBIE 
+      && procs[i].parent == parent && 0 == procs[i].user_heap.has_copied) {
+        do_copy_on_write(&procs[i], parent);
+    }
+  }
+  if(parent->user_heap.refcnt) {
+    panic("invalid heap refcnt!");
+  }
 }
