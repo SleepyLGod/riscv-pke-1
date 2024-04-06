@@ -10,14 +10,14 @@
 
 typedef struct elf_info_t {
   spike_file_t *f;
-  struct process *p;
+  process *p;
 } elf_info;
 
 //
 // the implementation of allocater. allocates memory space for later segment loading
 //
 static void *elf_alloc_mb(elf_ctx *ctx, uint64 elf_pa, uint64 elf_va, uint64 size) {
-  // directly returns the virtual address as we are in the Bare mode in lab1
+  // directly returns the virtual address as we are in the Bare mode in lab1_x
   return (void *)elf_va;
 }
 
@@ -26,7 +26,9 @@ static void *elf_alloc_mb(elf_ctx *ctx, uint64 elf_pa, uint64 elf_va, uint64 siz
 //
 static uint64 elf_fpread(elf_ctx *ctx, void *dest, uint64 nb, uint64 offset) {
   elf_info *msg = (elf_info *)ctx->info;
-  // call spike file utility
+  // call spike file utility to load the content of elf file into memory.
+  // spike_file_pread will read the elf file (msg->f) from offset to memory (indicated by
+  // *dest) for nb bytes.
   return spike_file_pread(msg->f, dest, nb, offset);
 }
 
@@ -44,6 +46,52 @@ elf_status elf_init(elf_ctx *ctx, void *info) {
 
   return EL_OK;
 }
+/** self realization **/
+elf_ctx global_elf_ctx; // Global variable to hold the ELF context
+
+elf_ctx *get_global_elf_ctx() {
+  return &global_elf_ctx;
+}
+
+elf_sect_header read_elf_section_header(elf_ctx *ctx, int idx) {
+  elf_sect_header sh;
+  // Read the section header from the ELF file at the specified index
+  elf_fpread(ctx, &sh, sizeof(elf_sect_header), 
+            ctx->ehdr.shoff + sizeof(elf_sect_header) * idx);
+  return sh;
+}
+
+// Function to read an ELF section header with a given name
+elf_sect_header read_elf_section_header_with_name(elf_ctx *ctx, const char *name) {
+
+  static int inited = 0;
+  static elf_sect_header shstrtab;
+  static char buf[1000];
+
+  if(!inited) { // If not initialized, read the section header for the string table and read the string table into the buffer
+    shstrtab = read_elf_section_header(ctx, ctx->ehdr.shstrndx);
+    read_elf_into_buffer(ctx, buf, shstrtab.offset, shstrtab.size);
+    inited = 1;
+  }
+
+  elf_sect_header header;
+  for (int i = 0; i < ctx->ehdr.shnum; i++) {
+    header = read_elf_section_header(ctx, i);
+    // If the name of the current section matches the given name, return the section header
+    if(0 == strcmp(buf + header.name, name)) return header;
+  }
+
+  int x = 0;
+  while (x != 0);
+
+  panic("no corresponding section name");
+}
+
+void read_elf_into_buffer(elf_ctx *ctx, void *dst, int offset, int size) {
+  elf_fpread(ctx, dst, size, offset); // Read the specified amount of data from the ELF file at the specified offset into the buffer
+}
+/** end **/
+
 // leb128 (little-endian base 128) is a variable-length
 // compression algoritm in DWARF
 void read_uleb128(uint64 *out, char **off) {
@@ -87,6 +135,7 @@ void read_uint16(uint16 *out, char **off) {
         *out |= (uint16)(**off) << (i << 3); (*off)++;
     }
 }
+
 /*
 * analyzis the data in the debug_line section
 *
@@ -100,7 +149,7 @@ void read_uint16(uint16 *out, char **off) {
 * and their code file name index of array "file"
 */
 void make_addr_line(elf_ctx *ctx, char *debug_line, uint64 length) {
-	process *p = ((elf_info *)ctx->info)->p;
+   process *p = ((elf_info *)ctx->info)->p;
     p->debugline = debug_line;
     // directory name char pointer array
     p->dir = (char **)((((uint64)debug_line + length + 7) >> 3) << 3); int dir_ind = 0, dir_base;
@@ -136,7 +185,7 @@ void make_addr_line(elf_ctx *ctx, char *debug_line, uint64 length) {
                             if (p->line_ind > 0 && p->line[p->line_ind - 1].addr == regs.addr) p->line_ind--;
                             p->line[p->line_ind] = regs; p->line[p->line_ind].file += file_base - 1;
                             p->line_ind++; goto endop;
-                        case 2: // DW_LNE_set_address 
+                        case 2: // DW_LNE_set_address
                             read_uint64(&regs.addr, &off); break;
                         // ignore DW_LNE_define_file
                         case 4: // DW_LNE_set_discriminator
@@ -189,12 +238,129 @@ endop:;
     // for (int i = 0; i < p->line_ind; i++)
     //     sprint("%p %d %d\n", p->line[i].addr, p->line[i].line, p->line[i].file);
 }
+
+/** self realization **/
+void read_runtime_error_source_code() {
+  elf_ctx *elf = get_global_elf_ctx();
+  elf_sect_header debug_line_header = read_elf_section_header_with_name(elf, ".debug_line");
+  // sprint("offset = %d, size = 0x%lx\n", debug_line_header.offset, debug_line_header.size);
+  char content[3000];
+  read_elf_into_buffer(elf, content, debug_line_header.offset, debug_line_header.size);
+  make_addr_line(elf, content, debug_line_header.size);
+  // why not tf->epc?
+  uint64 epc = read_csr(mepc);
+  process *p = ((elf_info *)elf->info)->p;
+  int line_idx = 0;
+  line_idx++;
+  line_idx--;
+  while(p->line[line_idx].addr != epc) {
+    line_idx++;
+  }
+  const char *file_name = p->file[p->line[line_idx].file].file;
+  const char *dir_name = p->dir[p->file[p->line[line_idx].file].dir];
+  
+  sprint("Runtime error at %s/%s:%d\n", dir_name, file_name, p->line[line_idx].line);
+  char path[100];
+  int path_len = 0;
+  for(int i = 0; i < strlen(dir_name); i++)
+    path[path_len++] = dir_name[i];
+  path[path_len++] = '/';
+  for(int i = 0; i < strlen(file_name); i++)
+    path[path_len++] = file_name[i];
+
+  path[path_len] = '\0';
+  spike_file_t *file = spike_file_open(path, O_RDONLY, 0);
+
+  int cur_line_no = 1;
+  ssize_t cur_offset = 0;
+  char line_content[100];
+  int line_len = 0;
+  while(cur_line_no < p->line[line_idx].line) {
+    char c;
+    while(spike_file_pread(file, &c, 1, cur_offset)) {
+      cur_offset++;
+      if(c == '\n') {
+        cur_line_no++;
+        break;
+      }
+    }
+  }
+
+  char c;
+  while(spike_file_pread(file, &c, 1, cur_offset) && c != '\n') {
+    cur_offset++;
+    line_content[line_len++] = c;
+  }
+  line_content[line_len] = '\0';
+  sprint("%s\n", line_content);
+
+  spike_file_close(file);
+}
+
+void read_runtime_error_source_code_plus() {
+  elf_ctx *elf = get_global_elf_ctx();
+  elf_sect_header debug_line_header = read_elf_section_header_with_name(elf, ".debug_line");
+  // sprint("offset = %d, size = 0x%lx\n", debug_line_header.offset, debug_line_header.size);
+  char content[3000];
+  read_elf_into_buffer(elf, content, debug_line_header.offset, debug_line_header.size);
+  make_addr_line(elf, content, debug_line_header.size);
+  // why not tf->epc?
+  uint64 epc = read_csr(mepc);
+  process *p = ((elf_info *)elf->info)->p;
+  int line_idx = 0;
+  while (p->line[line_idx].addr != epc) {
+    line_idx++;
+  }
+  const char *file_name = p->file[p->line[line_idx].file].file;
+  const char *dir_name = p->dir[p->file[p->line[line_idx].file].dir];
+  
+  sprint("Runtime error at %s/%s:%d\n", dir_name, file_name, p->line[line_idx].line);
+  char path[100];
+  int path_len = 0;
+  for (int i = 0; i < strlen(dir_name); i++)
+    path[path_len++] = dir_name[i];
+  path[path_len++] = '/';
+  for (int i = 0; i < strlen(file_name); i++)
+    path[path_len++] = file_name[i];
+
+  path[path_len] = '\0';
+  spike_file_t *file = spike_file_open(path, O_RDONLY, 0);
+
+  int cur_line_no = 1;
+  ssize_t cur_offset = 0;
+  char line_content[100];
+  int line_len = 0;
+  while(cur_line_no < p->line[line_idx].line) {
+    char c;
+    while(spike_file_pread(file, &c, 1, cur_offset)) {
+      cur_offset++;
+      if(c == '\n') {
+        cur_line_no++;
+        break;
+      }
+    }
+  }
+
+  char c;
+  while(spike_file_pread(file, &c, 1, cur_offset) && c != '\n') {
+    cur_offset++;
+    line_content[line_len++] = c;
+  }
+  line_content[line_len] = '\0';
+  sprint("%s\n", line_content);
+
+  spike_file_close(file);
+}
+/** end **/
+
 //
 // load the elf segments to memory regions as we are in Bare mode in lab1
 //
 elf_status elf_load(elf_ctx *ctx) {
+  // elf_prog_header structure is defined in kernel/elf.h
   elf_prog_header ph_addr;
   int i, off;
+
   // traverse the elf program segment headers
   for (i = 0, off = ctx->ehdr.phoff; i < ctx->ehdr.phnum; i++, off += sizeof(ph_addr)) {
     // read segment headers
@@ -204,7 +370,7 @@ elf_status elf_load(elf_ctx *ctx) {
     if (ph_addr.memsz < ph_addr.filesz) return EL_ERR;
     if (ph_addr.vaddr + ph_addr.memsz < ph_addr.vaddr) return EL_ERR;
 
-    // allocate memory before loading
+    // allocate memory block before elf loading
     void *dest = elf_alloc_mb(ctx, ph_addr.vaddr, ph_addr.vaddr, ph_addr.memsz);
 
     // actual loading
@@ -244,7 +410,7 @@ static size_t parse_args(arg_buf *arg_bug_msg) {
 //
 // load the elf of user application, by using the spike file interface.
 //
-void load_bincode_from_host_elf(struct process *p) {
+void load_bincode_from_host_elf(process *p) {
   arg_buf arg_bug_msg;
 
   // retrieve command line arguements
@@ -253,25 +419,31 @@ void load_bincode_from_host_elf(struct process *p) {
 
   sprint("Application: %s\n", arg_bug_msg.argv[0]);
 
-  //elf loading
+  //elf loading. elf_ctx is defined in kernel/elf.h, used to track the loading process.
   elf_ctx elfloader;
+  // elf_info is defined above, used to tie the elf file and its corresponding process.
   elf_info info;
 
   info.f = spike_file_open(arg_bug_msg.argv[0], O_RDONLY, 0);
   info.p = p;
+  // IS_ERR_VALUE is a macro defined in spike_interface/spike_htif.h
   if (IS_ERR_VALUE(info.f)) panic("Fail on openning the input application program.\n");
 
-  // init elfloader
+  // init elfloader context. elf_init() is defined above.
   if (elf_init(&elfloader, &info) != EL_OK)
     panic("fail to init elfloader.\n");
 
-  // load elf
+  // load elf. elf_load() is defined above.
   if (elf_load(&elfloader) != EL_OK) panic("Fail on loading elf.\n");
 
-  // entry (virtual) address
+/** self realization **/
+  global_elf_ctx = elfloader;
+/** end **/
+
+  // entry (virtual, also physical in lab1_x) address
   p->trapframe->epc = elfloader.ehdr.entry;
 
-  // close host file
+  // close the host spike file
   spike_file_close( info.f );
 
   sprint("Application program entry point (virtual address): 0x%lx\n", p->trapframe->epc);

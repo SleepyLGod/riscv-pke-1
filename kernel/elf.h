@@ -86,5 +86,9 @@ elf_status elf_init(elf_ctx *ctx, void *info);
 elf_status elf_load(elf_ctx *ctx);
 
 void load_bincode_from_host_elf(process *p);
-
+/** self realization **/
+void read_elf_into_buffer(elf_ctx *ctx, void *dst, int offset, int size);
+void read_runtime_error_source_code();
+void read_runtime_error_source_code_plus();
+/** end **/
 #endif
