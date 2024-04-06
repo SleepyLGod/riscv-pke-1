@@ -160,7 +160,10 @@ void *user_va_to_pa(pagetable_t page_dir, void *va) {
   // Also, it is possible that "va" is not mapped at all. in such case, we can find
   // invalid PTE, and should return NULL.
   pte_t *pte = page_walk(page_dir, (uint64)va, 0);
-  if (NULL == pte || (*pte & PTE_V) == 0) return NULL;
+  if(NULL == pte || (*pte & PTE_V) == 0) {
+    return NULL;
+  }
+
   uint64 pa = PTE2PA(*pte) + ((uint64)(va) & ((1 << PGSHIFT) - 1));
   return (void *)pa;
 
@@ -170,8 +173,9 @@ void *user_va_to_pa(pagetable_t page_dir, void *va) {
 // maps virtual address [va, va+sz] to [pa, pa+sz] (for user application).
 //
 void user_vm_map(pagetable_t page_dir, uint64 va, uint64 size, uint64 pa, int perm) {
-  if (map_pages(page_dir, va, size, pa, perm) != 0)
+  if (map_pages(page_dir, va, size, pa, perm) != 0) {
     panic("fail to user_vm_map .\n");
+  }
 }
 
 //
@@ -186,34 +190,18 @@ void user_vm_unmap(pagetable_t page_dir, uint64 va, uint64 size, int free) {
   // (use free_page() defined in pmm.c) the physical pages. lastly, invalidate the PTEs.
   // as naive_free reclaims only one page at a time, you only need to consider one page
   // to make user/app_naive_malloc to behave correctly.
-  // Assign the page directory to the page table pointer
   pagetable_t pt = page_dir;
-
-  // Declare a pointer to a page table entry (pte)
   pte_t *pte;
-
-  // Loop through the page table levels, starting from the highest level (2) down to the lowest (0)
-  for (int level = 2; level >= 0; level--) {
-    // Calculate the address of the page table entry (pte) for the current level and virtual address (va)
+  for(int level = 2; level >= 0; level--) {
     pte = pt + PX(level, va);
-    
-    // Check if the page is not valid (i.e., the PTE_V bit is not set)
-    if (((*pte) & PTE_V) == 0) {
-      // If the page is not valid, return from the function
+    if(((*pte) & PTE_V) == 0) {
       return;
     }
-    
-    // If the page is valid, update the page table pointer (pt) to point to the next level of the page table
     pt = (pagetable_t)PTE2PA(*pte);
   }
-
-  // After the loop, pte points to the final page table entry for the given virtual address (va)
-
-  // Clear the valid bit in the page table entry to invalidate the page
+  
   *pte &= ~PTE_V;
-
-  // If the 'free' flag is set, free the physical page associated with the page table entry
-  if (free) {
+  if(free) {
     free_page((void *)PTE2PA(*pte));
   }
 }

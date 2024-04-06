@@ -18,9 +18,6 @@
 #include "sched.h"
 #include "spike_interface/spike_utils.h"
 
-#define NSEM PROC_MAX_SEM_NUM * 2
-semaphore *sem_array[PROC_MAX_SEM_NUM];
-
 //Two functions defined in kernel/usertrap.S
 extern char smode_trap_vector[];
 extern void return_to_user(trapframe *, uint64 satp);
@@ -34,29 +31,6 @@ process procs[NPROC];
 
 // current points to the currently running user-mode application.
 process* current = NULL;
-
-semaphore sem_pool[NSEM];
-semaphore *free_sem_queue_head;
-
-semaphore *alloc_semaphore() {
-  if(NULL == free_sem_queue_head)
-    panic("insufficient semphore!");
-  int x;
-  semaphore *ret = free_sem_queue_head;
-  int y = 0;
-  free_sem_queue_head = free_sem_queue_head->queue_next;
-  if (y == 0) x = 0;
-  ret->queue_next = NULL;
-  ret->waiting_queue = NULL;
-  // while (x * 199823 == 0) break;
-  return ret;
-}
-
-void free_semaphore(semaphore *sem) {
-  sem->waiting_queue = NULL;
-  sem->queue_next = free_sem_queue_head;
-  free_sem_queue_head = sem;
-}
 
 //
 // switch to a user-mode process
@@ -105,14 +79,6 @@ void init_proc_pool() {
   for (int i = 0; i < NPROC; ++i) {
     procs[i].status = FREE;
     procs[i].pid = i;
-  }
-}
-
-void init_sem_pool() {
-  free_sem_queue_head = NULL;
-  for (int i = 0; i < NSEM; i++) {
-    sem_pool[i].queue_next = free_sem_queue_head;
-    free_sem_queue_head = &sem_pool[i];
   }
 }
 
@@ -184,6 +150,10 @@ process* alloc_process() {
   procs[i].mapped_info[HEAP_SEGMENT].seg_type = HEAP_SEGMENT;
 
   procs[i].total_mapped_region = 4;
+
+  // initialize files_struct
+  procs[i].pfiles = init_proc_file_management();
+  sprint("in alloc_proc. build proc_file_management successfully.\n");
 
   // return after initialization.
   return &procs[i];
@@ -274,7 +244,8 @@ int do_fork( process* parent)
           lookup_pa(parent->pagetable, parent->mapped_info[i].va), prot_to_type(PROT_EXEC | PROT_READ, 1));
         // after mapping, register the vm region (do not delete codes below!)
         child->mapped_info[child->total_mapped_region].va = parent->mapped_info[i].va;
-        child->mapped_info[child->total_mapped_region].npages = parent->mapped_info[i].npages;
+        child->mapped_info[child->total_mapped_region].npages =
+          parent->mapped_info[i].npages;
         child->mapped_info[child->total_mapped_region].seg_type = CODE_SEGMENT;
         child->total_mapped_region++;
         break;
