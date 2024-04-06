@@ -8,3 +8,8 @@ void* naive_malloc();
 void naive_free(void* va);
 int fork();
 void yield();
+/** self realization **/
+int sem_new(int initial_value);
+void sem_P(int sem);
+void sem_V(int sem);
+/** end **/
