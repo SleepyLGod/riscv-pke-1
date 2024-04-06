@@ -1,4 +1,5 @@
 #include "pmm.h"
+#include "sync_utils.h"
 #include "util/functions.h"
 #include "riscv.h"
 #include "config.h"
@@ -9,12 +10,13 @@
 // _end is defined in kernel/kernel.lds, it marks the ending (virtual) address of PKE kernel
 extern char _end[];
 // g_mem_size is defined in spike_interface/spike_memory.c, it indicates the size of our
-// (emulated) spike machine.
+// (emulated) spike machine. g_mem_size's value is obtained when initializing HTIF. 
 extern uint64 g_mem_size;
 
 static uint64 free_mem_start_addr;  //beginning address of free memory
 static uint64 free_mem_end_addr;    //end address of free memory (not included)
 
+int vm_alloc_stage[NCPU] = { 0 }; // 0 for kernel alloc, 1 for user alloc
 typedef struct node {
   struct node *next;
 } list_node;
@@ -23,7 +25,8 @@ typedef struct node {
 static list_node g_free_mem_list;
 
 //
-// actually creates the freepage list. each page occupies 4KB (PGSIZE)
+// actually creates the freepage list. each page occupies 4KB (PGSIZE), i.e., small page.
+// PGSIZE is defined in kernel/riscv.h, ROUNDUP is defined in util/functions.h.
 //
 static void create_freepage_list(uint64 start, uint64 end) {
   g_free_mem_list.next = 0;
@@ -31,10 +34,14 @@ static void create_freepage_list(uint64 start, uint64 end) {
     free_page( (void *)p );
 }
 
+// lock for page free and alloc
+static int mem_lock;
+
 //
 // place a physical page at *pa to the free list of g_free_mem_list (to reclaim the page)
 //
 void free_page(void *pa) {
+  spin_lock(&mem_lock);
   if (((uint64)pa % PGSIZE) != 0 || (uint64)pa < free_mem_start_addr || (uint64)pa >= free_mem_end_addr)
     panic("free_page 0x%lx \n", pa);
 
@@ -42,6 +49,7 @@ void free_page(void *pa) {
   list_node *n = (list_node *)pa;
   n->next = g_free_mem_list.next;
   g_free_mem_list.next = n;
+  spin_unlock(&mem_lock);
 }
 
 //
@@ -49,9 +57,14 @@ void free_page(void *pa) {
 // Allocates only ONE page!
 //
 void *alloc_page(void) {
+  spin_lock(&mem_lock);
   list_node *n = g_free_mem_list.next;
+  int hartid = read_tp();
+  if (vm_alloc_stage[hartid]) {
+    sprint("hartid = %ld: alloc page 0x%x\n", hartid, n);
+  }
   if (n) g_free_mem_list.next = n->next;
-
+  spin_unlock(&mem_lock);
   return (void *)n;
 }
 
@@ -71,7 +84,7 @@ void pmm_init() {
   // free memory starts from the end of PKE kernel and must be page-aligined
   free_mem_start_addr = ROUNDUP(g_kernel_end , PGSIZE);
 
-  // recompute g_mem_size to limit the physical memory space that PKE kernel
+  // recompute g_mem_size to limit the physical memory space that our riscv-pke kernel
   // needs to manage
   g_mem_size = MIN(PKE_MAX_ALLOWABLE_RAM, g_mem_size);
   if( g_mem_size < pke_kernel_size )

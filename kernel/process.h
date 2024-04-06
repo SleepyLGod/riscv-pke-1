@@ -3,7 +3,7 @@
 
 #include "riscv.h"
 
-typedef struct trapframe {
+typedef struct trapframe_t {
   // space to store context (all common registers)
   /* offset:0   */ riscv_regs regs;
 
@@ -14,12 +14,12 @@ typedef struct trapframe {
   // saved user process counter
   /* offset:264 */ uint64 epc;
 
-  //kernel page table
+  // kernel page table. added @lab2_1
   /* offset:272 */ uint64 kernel_satp;
 }trapframe;
 
 // the extremely simple definition of process, used for begining labs of PKE
-typedef struct process {
+typedef struct process_t {
   // pointing to the stack used in trap handling.
   uint64 kstack;
   // user page table
@@ -32,8 +32,9 @@ typedef struct process {
 void switch_to(process*);
 
 // current running process
-extern process* current;
-// virtual address of our simple heap
-extern uint64 g_ufree_page;
+extern process* current[NCPU];
+
+// address of the first free page in our simple heap. added @lab2_2
+extern uint64 ufree_page[NCPU];
 
 #endif

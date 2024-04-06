@@ -61,7 +61,7 @@ pte_t *page_walk(pagetable_t page_dir, uint64 va, int alloc) {
     // "pte" points to the entry of current level
     pte_t *pte = pt + PX(level, va);
 
-    // now, we need to know if above pte is valid (established mapping to phyiscal page)
+    // now, we need to know if above pte is valid (established mapping to a phyiscal page)
     // or not.
     if (*pte & PTE_V) {  //PTE valid
       // phisical address of pagetable of next level
@@ -110,6 +110,7 @@ pagetable_t g_kernel_pagetable;
 // maps virtual address [va, va+sz] to [pa, pa+sz] (for kernel).
 //
 void kern_vm_map(pagetable_t page_dir, uint64 va, uint64 pa, uint64 sz, int perm) {
+  // map_pages is defined in kernel/vmm.c
   if (map_pages(page_dir, va, sz, pa, perm) != 0) panic("kern_vm_map");
 }
 
@@ -117,10 +118,12 @@ void kern_vm_map(pagetable_t page_dir, uint64 va, uint64 pa, uint64 sz, int perm
 // kern_vm_init() constructs the kernel page table.
 //
 void kern_vm_init(void) {
+  // pagetable_t is defined in kernel/riscv.h. it's actually uint64*
   pagetable_t t_page_dir;
 
-  // allocate a page (t_page_dir) to be the page directory for kernel
+  // allocate a page (t_page_dir) to be the page directory for kernel. alloc_page is defined in kernel/pmm.c
   t_page_dir = (pagetable_t)alloc_page();
+  // memset is defined in util/string.c
   memset(t_page_dir, 0, PGSIZE);
 
   // map virtual address [KERN_BASE, _etext] to physical address [DRAM_BASE, DRAM_BASE+(_etext - KERN_BASE)],
@@ -142,7 +145,6 @@ void kern_vm_init(void) {
 }
 
 /* --- user page table part --- */
-
 //
 // convert and return the corresponding physical address of a virtual address (va) of
 // application.
@@ -152,12 +154,18 @@ void *user_va_to_pa(pagetable_t page_dir, void *va) {
   // to its corresponding physical address, i.e., "pa". To do it, we need to walk
   // through the page table, starting from its directory "page_dir", to locate the PTE
   // that maps "va". If found, returns the "pa" by using:
-  // pa = PYHS_ADDR(PTE) + (va - va & (1<<PGSHIFT -1))
+  // pa = PYHS_ADDR(PTE) + (va & (1<<PGSHIFT -1))
   // Here, PYHS_ADDR() means retrieving the starting address (4KB aligned), and
-  // (va - va & (1<<PGSHIFT -1)) means computing the offset of "va" in its page.
+  // (va & (1<<PGSHIFT -1)) means computing the offset of "va" inside its page.
   // Also, it is possible that "va" is not mapped at all. in such case, we can find
   // invalid PTE, and should return NULL.
-  panic( "You have to implement user_va_to_pa (convert user va to pa) to print messages in lab2_1.\n" );
+  pte_t *pte = page_walk(page_dir, (uint64)va, 0);
+  if(NULL == pte || (*pte & PTE_V) == 0) {
+    return NULL;
+  }
+
+  uint64 pa = PTE2PA(*pte) + ((uint64)(va) & ((1 << PGSHIFT) - 1));
+  return (void *)pa;
 
 }
 
@@ -177,11 +185,23 @@ void user_vm_map(pagetable_t page_dir, uint64 va, uint64 size, uint64 pa, int pe
 void user_vm_unmap(pagetable_t page_dir, uint64 va, uint64 size, int free) {
   // TODO (lab2_2): implement user_vm_unmap to disable the mapping of the virtual pages
   // in [va, va+size], and free the corresponding physical pages used by the virtual
-  // addresses when if free is not zero.
+  // addresses when if 'free' (the last parameter) is not zero.
   // basic idea here is to first locate the PTEs of the virtual pages, and then reclaim
   // (use free_page() defined in pmm.c) the physical pages. lastly, invalidate the PTEs.
   // as naive_free reclaims only one page at a time, you only need to consider one page
-  // to make user/app_naive_malloc to produce the correct hehavior.
-  panic( "You have to implement user_vm_unmap to free pages using naive_free in lab2_2.\n" );
-
+  // to make user/app_naive_malloc to behave correctly.
+  pagetable_t pt = page_dir;
+  pte_t *pte;
+  for(int level = 2; level >= 0; level--) {
+    pte = pt + PX(level, va);
+    if(((*pte) & PTE_V) == 0) {
+      return;
+    }
+    pt = (pagetable_t)PTE2PA(*pte);
+  }
+  
+  *pte &= ~PTE_V;
+  if(free) {
+    free_page((void *)PTE2PA(*pte));
+  }
 }
