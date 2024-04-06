@@ -244,19 +244,16 @@ int do_fork( process* parent)
           lookup_pa(parent->pagetable, parent->mapped_info[i].va), prot_to_type(PROT_EXEC | PROT_READ, 1));
         // after mapping, register the vm region (do not delete codes below!)
         child->mapped_info[child->total_mapped_region].va = parent->mapped_info[i].va;
-        child->mapped_info[child->total_mapped_region].npages =
-          parent->mapped_info[i].npages;
+        child->mapped_info[child->total_mapped_region].npages = parent->mapped_info[i].npages;
         child->mapped_info[child->total_mapped_region].seg_type = CODE_SEGMENT;
         child->total_mapped_region++;
         break;
       }
     }
   }
-
   child->status = READY;
   child->trapframe->regs.a0 = 0;
   child->parent = parent;
   insert_to_ready_queue( child );
-
   return child->pid;
 }

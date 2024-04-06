@@ -79,12 +79,11 @@ elf_status elf_init(elf_ctx *ctx, void *info) {
 }
 
 elf_status elf_vfs_init(elf_ctx *ctx, struct file *elf_file) {
-  if(elf_vfs_pread(elf_file, &ctx->ehdr, sizeof(ctx->ehdr), 0)!= sizeof(ctx->ehdr)) {
+  if(elf_vfs_pread(elf_file, &ctx->ehdr, sizeof(ctx->ehdr), 0)!= sizeof(ctx->ehdr))
     return EL_EIO;
-  }
-  if (ctx->ehdr.magic != ELF_MAGIC) {
+    
+  if (ctx->ehdr.magic != ELF_MAGIC)
     return EL_NOTELF;
-  }
   return EL_OK;
 }
 
@@ -254,7 +253,29 @@ void load_bincode_from_vfs_elf(process *p) {
 
   sprint("Application: %s\n", arg_bug_msg.argv[0]);
 
-  //elf loading. elf_ctx is defined in kernel/elf.h, used to track the loading process.
+  elf_ctx elfloader;
+
+  struct file *elf_file = vfs_open(arg_bug_msg.argv[0], O_RDONLY);
+
+  if (elf_vfs_init(&elfloader, elf_file) != EL_OK)
+    panic("fail to init elfloader.\n");
+
+  if (elf_vfs_load(p, &elfloader, elf_file) != EL_OK) panic("Fail on loading elf.\n");
+
+  p->trapframe->epc = elfloader.ehdr.entry;
+  vfs_close(elf_file);
+
+  sprint("Application program entry point (virtual address): 0x%lx\n", p->trapframe->epc);
+}
+
+void load_bincode_vfs_elf(process *p) {
+  arg_buf arg_bug_msg;
+
+  // retrieve command line arguements
+  size_t argc = parse_args(&arg_bug_msg);
+  if (!argc) panic("You need to specify the application program!\n");
+
+  //elf loading.
   elf_ctx elfloader;
 
   struct file *elf_file = vfs_open(arg_bug_msg.argv[0], O_RDONLY);
@@ -264,15 +285,14 @@ void load_bincode_from_vfs_elf(process *p) {
     panic("fail to init elfloader.\n");
 
   // load elf. elf_load() is defined above.
-  if (elf_vfs_load(p, &elfloader, elf_file) != EL_OK) panic("Fail on loading elf.\n");
+  if (elf_vfs_load(p, &elfloader, elf_file) != EL_OK) 
+    panic("Fail on loading elf.\n");
 
   // entry (virtual, also physical in lab1_x) address
   p->trapframe->epc = elfloader.ehdr.entry;
 
   // close the host spike file
   vfs_close(elf_file);
-
-  sprint("Application program entry point (virtual address): 0x%lx\n", p->trapframe->epc);
 }
 
 void elf_substitute(process *p, elf_ctx *ctx, struct file *elf_file) {
@@ -286,7 +306,7 @@ void elf_substitute(process *p, elf_ctx *ctx, struct file *elf_file) {
     // elf_file->offset = off;
     vfs_lseek(elf_file, off, 0);
     uint64 bytes_read = vfs_read(elf_file, (char *)&ph_addr, sizeof(ph_addr));
-    if(bytes_read != sizeof(ph_addr)) {
+    if (bytes_read != sizeof(ph_addr)) {
       panic("error when reading segment header!");
     }
     if (ph_addr.type != ELF_PROG_LOAD) continue;
@@ -294,8 +314,8 @@ void elf_substitute(process *p, elf_ctx *ctx, struct file *elf_file) {
     if (ph_addr.vaddr + ph_addr.memsz < ph_addr.vaddr) panic("elf ph memsz error!");
     // SEGMENT_READABLE, SEGMENT_EXECUTABLE, SEGMENT_WRITABLE are defined in kernel/elf.h
     if( ph_addr.flags == (SEGMENT_READABLE|SEGMENT_EXECUTABLE) ){ // code segment
-      for(int j = 0; j < PGSIZE/sizeof(mapped_region); j++) {
-        if(p->mapped_info[j].seg_type == CODE_SEGMENT) {
+      for (int j = 0; j < PGSIZE/sizeof(mapped_region); j++) {
+        if (p->mapped_info[j].seg_type == CODE_SEGMENT) {
           sprint( "CODE_SEGMENT added at mapped info offset:%d\n", j );
           // free the original page
           user_vm_unmap(p->pagetable, p->mapped_info[j].va, PGSIZE, 1); 
@@ -305,16 +325,15 @@ void elf_substitute(process *p, elf_ctx *ctx, struct file *elf_file) {
           // elf_file->offset = ph_addr.off;
           vfs_lseek(elf_file, ph_addr.off, 0);
           bytes_read = vfs_read(elf_file, dest, ph_addr.memsz);
-          if(bytes_read != ph_addr.memsz) {
+          if (bytes_read != ph_addr.memsz)
             panic("error when substituting code segment!");
-          }
           break;
         }
       }
     } else if ( ph_addr.flags == (SEGMENT_READABLE|SEGMENT_WRITABLE) ){ // data segment
       int found = 0; // maybe there's no existing data segment
-      for(int j = 0; j < PGSIZE/sizeof(mapped_region); j++) {
-        if(p->mapped_info[j].seg_type == DATA_SEGMENT) {
+      for (int j = 0; j < PGSIZE/sizeof(mapped_region); j++) {
+        if (p->mapped_info[j].seg_type == DATA_SEGMENT) {
           sprint( "DATA_SEGMENT added at mapped info offset:%d\n", j );
           // free the original page
           user_vm_unmap(p->pagetable, p->mapped_info[j].va, PGSIZE, 1); 
@@ -324,9 +343,8 @@ void elf_substitute(process *p, elf_ctx *ctx, struct file *elf_file) {
           vfs_lseek(elf_file, ph_addr.off, 0);
           p->mapped_info[j].va = ph_addr.vaddr;
           bytes_read = vfs_read(elf_file, dest, ph_addr.memsz);
-          if(bytes_read != ph_addr.memsz) {
+          if (bytes_read != ph_addr.memsz)
             panic("error when substituting data segment!");
-          }
           found = 1;
           break;
         }
@@ -337,11 +355,10 @@ void elf_substitute(process *p, elf_ctx *ctx, struct file *elf_file) {
         // elf_file->offset = ph_addr.off;
         vfs_lseek(elf_file, ph_addr.off, 0);
         bytes_read = vfs_read(elf_file, dest, ph_addr.memsz);
-        if(bytes_read != ph_addr.memsz) {
+        if(bytes_read != ph_addr.memsz)
           panic("error when substituting data segment!");
-        }
-        for(int j = 0; j < PGSIZE / sizeof(mapped_region); j++) {
-          if(p->mapped_info[j].va == 0) {
+        for (int j = 0; j < PGSIZE / sizeof(mapped_region); j++) {
+          if (p->mapped_info[j].va == 0) {
             sprint( "DATA_SEGMENT added at mapped info offset:%d\n", j );
             p->mapped_info[j].npages = 1;
             p->mapped_info[j].va = ph_addr.vaddr;
@@ -356,11 +373,10 @@ void elf_substitute(process *p, elf_ctx *ctx, struct file *elf_file) {
   }
 
   // clear the heap segment
-  for(int j = 0; j < PGSIZE / sizeof(mapped_region); j++) {
-    if(p->mapped_info[j].seg_type == HEAP_SEGMENT) {
-      for(uint64 va = p->user_heap.heap_bottom; va < p->user_heap.heap_top; va += PGSIZE) {
+  for (int j = 0; j < PGSIZE / sizeof(mapped_region); j++) {
+    if (p->mapped_info[j].seg_type == HEAP_SEGMENT) {
+      for(uint64 va = p->user_heap.heap_bottom; va < p->user_heap.heap_top; va += PGSIZE)
         user_vm_unmap(p->pagetable, va, PGSIZE, 1); // free the page at the same time
-      }
       p->mapped_info[j].npages = 0;
       p->user_heap.heap_top = p->user_heap.heap_bottom;
     }

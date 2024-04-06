@@ -264,9 +264,8 @@ int rfs_write_back_vinode(struct vinode *vinode) {
   dinode.nlinks = vinode->nlinks;
   dinode.blocks = vinode->blocks;
   dinode.type = vinode->type;
-  for (int i = 0; i < RFS_DIRECT_BLKNUM; ++i) {
+  for (int i = 0; i < RFS_DIRECT_BLKNUM; ++i)
     dinode.addrs[i] = vinode->addrs[i];
-  }
 
   struct rfs_device *rdev = rfs_device_list[vinode->sb->s_dev->dev_id];
   if (rfs_write_dinode(rdev, &dinode, vinode->inum) != 0) {
@@ -291,9 +290,8 @@ int rfs_update_vinode(struct vinode *vinode) {
   vinode->nlinks = dinode->nlinks;
   vinode->blocks = dinode->blocks;
   vinode->type = dinode->type;
-  for (int i = 0; i < RFS_DIRECT_BLKNUM; ++i) {
+  for (int i = 0; i < RFS_DIRECT_BLKNUM; ++i)
     vinode->addrs[i] = dinode->addrs[i];
-  }
   free_page(dinode);
 
   return 0;
@@ -362,11 +360,9 @@ ssize_t rfs_read(struct vinode *f_inode, char *r_buf, ssize_t len,
 //
 // write the content of "w_buf" (lengthed "len") to a file ("f_inode").
 //
-ssize_t rfs_write(struct vinode *f_inode, const char *w_buf, ssize_t len,
-                  int *offset) {
-  if (f_inode->size < *offset) {
+ssize_t rfs_write(struct vinode *f_inode, const char *w_buf, ssize_t len, int *offset) {
+  if (f_inode->size < *offset)
     panic("rfs_write:offset should less than file size!");
-  }
 
   // compute how many blocks we need to write
   int align = *offset % RFS_BLKSIZE;
@@ -422,8 +418,7 @@ ssize_t rfs_write(struct vinode *f_inode, const char *w_buf, ssize_t len,
   }
 
   // update file size
-  f_inode->size =
-      (f_inode->size < *offset + len ? *offset + len : f_inode->size);
+  f_inode->size = (f_inode->size < *offset + len ? *offset + len : f_inode->size);
 
   *offset += len;
   return len;
@@ -472,8 +467,7 @@ struct vinode *rfs_create(struct vinode *parent, struct dentry *sub_dentry) {
   // ** find a free disk inode to store the file that is going to be created
   struct rfs_dinode *free_dinode = NULL;
   int free_inum = 0;
-  for (int i = 0; i < (RFS_BLKSIZE / RFS_INODESIZE * RFS_MAX_INODE_BLKNUM);
-       ++i) {
+  for (int i = 0; i < (RFS_BLKSIZE / RFS_INODESIZE * RFS_MAX_INODE_BLKNUM); ++i) {
     free_dinode = rfs_read_dinode(rdev, i);
     if (free_dinode->type == R_FREE) {  // found
       free_inum = i;
@@ -596,12 +590,11 @@ int rfs_link(struct vinode *parent, struct dentry *sub_dentry, struct vinode *li
   // 3) persistent the changes to disk. you can use rfs_write_back_vinode here.
   //
   link_node->nlinks++;
-  if(rfs_add_direntry(parent, sub_dentry->name, link_node->inum)) {
+  if(rfs_add_direntry(parent, sub_dentry->name, link_node->inum))
     panic("link: add direntry failed");
-  }
-  if(rfs_write_back_vinode(link_node)) {
+
+  if(rfs_write_back_vinode(link_node))
     panic("link: write back link node failed");
-  }
   return 0;
 }
 
@@ -623,9 +616,9 @@ int rfs_unlink(struct vinode *parent, struct dentry *sub_dentry, struct vinode *
       rfs_r1block(rdev, parent->addrs[delete_index / one_block_direntrys]);
       p_direntry = (struct rfs_direntry *)rdev->iobuffer;
     }
-    if (strcmp(p_direntry->name, sub_dentry->name) == 0) {  // found
+    if (strcmp(p_direntry->name, sub_dentry->name) == 0) // found
       break;
-    }
+
     ++p_direntry;
   }
 

@@ -169,15 +169,15 @@ ssize_t sys_user_close(int fd) {
 //
 // lib call to opendir
 //
-ssize_t sys_user_opendir(char * pathva){
+ssize_t sys_user_opendir(char * pathva) {
   char * pathpa = (char*)user_va_to_pa((pagetable_t)(current->pagetable), pathva);
   return do_opendir(pathpa);
 }
 
 //
 // lib call to readdir
-//
-ssize_t sys_user_readdir(int fd, struct dir *vdir){
+// 
+ssize_t sys_user_readdir(int fd, struct dir *vdir) {
   struct dir * pdir = (struct dir *)user_va_to_pa((pagetable_t)(current->pagetable), vdir);
   return do_readdir(fd, pdir);
 }
@@ -185,7 +185,7 @@ ssize_t sys_user_readdir(int fd, struct dir *vdir){
 //
 // lib call to mkdir
 //
-ssize_t sys_user_mkdir(char * pathva){
+ssize_t sys_user_mkdir(char * pathva) {
   char * pathpa = (char*)user_va_to_pa((pagetable_t)(current->pagetable), pathva);
   return do_mkdir(pathpa);
 }
@@ -193,14 +193,14 @@ ssize_t sys_user_mkdir(char * pathva){
 //
 // lib call to closedir
 //
-ssize_t sys_user_closedir(int fd){
+ssize_t sys_user_closedir(int fd) {
   return do_closedir(fd);
 }
 
 //
 // lib call to link
 //
-ssize_t sys_user_link(char * vfn1, char * vfn2){
+ssize_t sys_user_link(char * vfn1, char * vfn2) {
   char * pfn1 = (char*)user_va_to_pa((pagetable_t)(current->pagetable), (void*)vfn1);
   char * pfn2 = (char*)user_va_to_pa((pagetable_t)(current->pagetable), (void*)vfn2);
   return do_link(pfn1, pfn2);
@@ -209,7 +209,7 @@ ssize_t sys_user_link(char * vfn1, char * vfn2){
 //
 // lib call to unlink
 //
-ssize_t sys_user_unlink(char * vfn){
+ssize_t sys_user_unlink(char * vfn) {
   char * pfn = (char*)user_va_to_pa((pagetable_t)(current->pagetable), (void*)vfn);
   return do_unlink(pfn);
 }
