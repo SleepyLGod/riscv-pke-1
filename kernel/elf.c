@@ -10,14 +10,16 @@
 
 typedef struct elf_info_t {
   spike_file_t *f;
-  struct process *p;
+  process *p;
 } elf_info;
+
+elf_ctx global_elf_ctx;
 
 //
 // the implementation of allocater. allocates memory space for later segment loading
 //
 static void *elf_alloc_mb(elf_ctx *ctx, uint64 elf_pa, uint64 elf_va, uint64 size) {
-  // directly returns the virtual address as we are in the Bare mode in lab1
+  // directly returns the virtual address as we are in the Bare mode in lab1_x
   return (void *)elf_va;
 }
 
@@ -26,7 +28,9 @@ static void *elf_alloc_mb(elf_ctx *ctx, uint64 elf_pa, uint64 elf_va, uint64 siz
 //
 static uint64 elf_fpread(elf_ctx *ctx, void *dest, uint64 nb, uint64 offset) {
   elf_info *msg = (elf_info *)ctx->info;
-  // call spike file utility
+  // call spike file utility to load the content of elf file into memory.
+  // spike_file_pread will read the elf file (msg->f) from offset to memory (indicated by
+  // *dest) for nb bytes.
   return spike_file_pread(msg->f, dest, nb, offset);
 }
 
@@ -49,8 +53,10 @@ elf_status elf_init(elf_ctx *ctx, void *info) {
 // load the elf segments to memory regions as we are in Bare mode in lab1
 //
 elf_status elf_load(elf_ctx *ctx) {
+  // elf_prog_header structure is defined in kernel/elf.h
   elf_prog_header ph_addr;
   int i, off;
+
   // traverse the elf program segment headers
   for (i = 0, off = ctx->ehdr.phoff; i < ctx->ehdr.phnum; i++, off += sizeof(ph_addr)) {
     // read segment headers
@@ -60,7 +66,7 @@ elf_status elf_load(elf_ctx *ctx) {
     if (ph_addr.memsz < ph_addr.filesz) return EL_ERR;
     if (ph_addr.vaddr + ph_addr.memsz < ph_addr.vaddr) return EL_ERR;
 
-    // allocate memory before loading
+    // allocate memory block before elf loading
     void *dest = elf_alloc_mb(ctx, ph_addr.vaddr, ph_addr.vaddr, ph_addr.memsz);
 
     // actual loading
@@ -100,7 +106,7 @@ static size_t parse_args(arg_buf *arg_bug_msg) {
 //
 // load the elf of user application, by using the spike file interface.
 //
-void load_bincode_from_host_elf(struct process *p) {
+void load_bincode_from_host_elf(process *p) {
   arg_buf arg_bug_msg;
 
   // retrieve command line arguements
@@ -109,26 +115,100 @@ void load_bincode_from_host_elf(struct process *p) {
 
   sprint("Application: %s\n", arg_bug_msg.argv[0]);
 
-  //elf loading
+  //elf loading. elf_ctx is defined in kernel/elf.h, used to track the loading process.
   elf_ctx elfloader;
+  // elf_info is defined above, used to tie the elf file and its corresponding process.
   elf_info info;
 
   info.f = spike_file_open(arg_bug_msg.argv[0], O_RDONLY, 0);
   info.p = p;
+  // IS_ERR_VALUE is a macro defined in spike_interface/spike_htif.h
   if (IS_ERR_VALUE(info.f)) panic("Fail on openning the input application program.\n");
 
-  // init elfloader
+  // init elfloader context. elf_init() is defined above.
   if (elf_init(&elfloader, &info) != EL_OK)
     panic("fail to init elfloader.\n");
 
-  // load elf
+  // load elf. elf_load() is defined above.
   if (elf_load(&elfloader) != EL_OK) panic("Fail on loading elf.\n");
 
-  // entry (virtual) address
+  // entry (virtual, also physical in lab1_x) address
   p->trapframe->epc = elfloader.ehdr.entry;
 
-  // close host file
+  global_elf_ctx = elfloader;
+
+  // close the host spike file
   spike_file_close( info.f );
 
   sprint("Application program entry point (virtual address): 0x%lx\n", p->trapframe->epc);
+}
+
+elf_ctx *get_elf() {
+  return &global_elf_ctx;
+}
+
+elf_section_header read_elf_section_header(elf_ctx *ctx, int idx) {
+  elf_section_header sh;
+  elf_fpread(ctx, &sh, sizeof(elf_section_header), ctx->ehdr.shoff + sizeof(elf_section_header) * idx);
+  return sh;
+}
+
+elf_section_header read_elf_section_header_with_name(elf_ctx *ctx, const char *name) {
+
+  static int inited = 0;
+  static elf_section_header shstrtab;
+  static char buf[1000];
+
+  if(!inited) {
+    shstrtab = read_elf_section_header(ctx, ctx->ehdr.shstrndx);
+    read_elf_into_buffer(ctx, buf, shstrtab.sh_offset, shstrtab.sh_size);
+    inited = 1;
+  }
+
+  elf_section_header header;
+  for(int i = 0; i < ctx->ehdr.shnum; i++) {
+    header = read_elf_section_header(ctx, i);
+    if(0 == strcmp(buf + header.sh_name, name)) {
+      return header;
+    }
+  }
+  panic("no corresponding section name");
+}
+
+void read_elf_into_buffer(elf_ctx *ctx, void *dst, int offset, int size) {
+  elf_fpread(ctx, dst, size, offset);
+}
+
+int symcmp(const void *a, const void *b) {
+  const elf_sym *sym1 = a;
+  const elf_sym *sym2 = b;
+  return sym1->st_value - sym2->st_value;
+}
+
+const char *get_symbol_name(elf_ctx *ctx, uint64 addr) {
+  static int inited = 0;
+  static elf_section_header symtab;
+  static elf_section_header strtab;
+  static elf_sym symbols[100];
+  static char strs[1000];
+  static int symnum = 0;
+  if(!inited) {
+    symtab = read_elf_section_header_with_name(ctx, ".symtab");
+    strtab = read_elf_section_header_with_name(ctx, ".strtab");
+    int now = 0;
+    while(now < symtab.sh_size) {
+      read_elf_into_buffer(ctx, symbols + symnum, symtab.sh_offset + symnum * sizeof(elf_sym), sizeof(elf_sym));
+      symnum++;
+      now += sizeof(elf_sym);
+    }
+    read_elf_into_buffer(ctx, strs, strtab.sh_offset, strtab.sh_size);
+    inited = 1;
+  }
+  
+  for(int i = 0; i < symnum; i++) {
+    if(addr >= symbols[i].st_value && addr < symbols[i].st_value + symbols[i].st_size) {
+      return strs + symbols[i].st_name;
+    }
+  }
+  panic("no such symbol");
 }
