@@ -12,7 +12,7 @@
 
 这是`main`分支，没有具体代码完成部分，只有报告，**分支情况**如下图所示：
 
-![image-20240407141016439](C:/Users/haodo/AppData/Roaming/Typora/typora-user-images/image-20240407141016439.png)
+![image-20240407141016439](https://raw.githubusercontent.com/SleepyLGod/images/dev/markdown/image-20240406195123767.png)
 
 
 
